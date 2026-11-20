@@ -19,6 +19,8 @@ import {
   runtimeSessionStartsFresh,
 } from "./provider.js";
 import type { ExecutionContextRef } from "./context-ref.js";
+import type { RunStopHookEvaluation } from "../agent-features/compose.js";
+import type { RunStopHookInput } from "../agent-features/contracts.js";
 import { ReplyDelivery } from "./reply-delivery.js";
 import type {
   ProfileUpdate,
@@ -240,6 +242,7 @@ interface ActiveExecution {
   readonly sourceInboxIds: Set<string>;
   readonly steerOperations: Set<Promise<void>>;
   readonly replyDelivery: ReplyDelivery;
+  readonly observedMessages: Message[];
   acceptingSteers: boolean;
 }
 
@@ -282,6 +285,9 @@ interface LocalRunExecution {
   upstreamCanceled: boolean;
   providerSucceeded: boolean;
   hasYielded: boolean;
+  readonly observedMessages: Message[];
+  stopHookInvoked: boolean;
+  stopHookBlocked: boolean;
 }
 
 export class RunLoop {
@@ -304,6 +310,12 @@ export class RunLoop {
   readonly #state: ContextRuntimeStatePort;
   readonly #prepareInput: (message: Message) => Message;
   readonly #onRunEvent: (event: RunEvent) => readonly RuntimeStatusUpdate[];
+  readonly #onRunBeforeStop:
+    | ((
+        input: RunStopHookInput,
+        signal: AbortSignal,
+      ) => Promise<RunStopHookEvaluation>)
+    | undefined;
   readonly #onRunClaimed:
     | ((runId: string, messages: NonEmptyReadonlyArray<Message>) => void)
     | undefined;
@@ -360,6 +372,11 @@ export class RunLoop {
     readonly prepareInput: (message: Message) => Message;
     /** Composed per-event status projections. Required. */
     readonly onRunEvent: (event: RunEvent) => readonly RuntimeStatusUpdate[];
+    /** Composed Runtime stop hooks evaluated before a turn finishes. */
+    readonly onRunBeforeStop?: (
+      input: RunStopHookInput,
+      signal: AbortSignal,
+    ) => Promise<RunStopHookEvaluation>;
     /** Observes the inputs of each claimed Run, before it executes. */
     readonly onRunClaimed?: (
       runId: string,
@@ -392,6 +409,7 @@ export class RunLoop {
     this.#state = options.state;
     this.#prepareInput = options.prepareInput;
     this.#onRunEvent = options.onRunEvent;
+    this.#onRunBeforeStop = options.onRunBeforeStop;
     this.#onRunClaimed = options.onRunClaimed;
     this.#onWorkStateRefreshed = options.onWorkStateRefreshed;
   }
@@ -931,6 +949,9 @@ export class RunLoop {
       upstreamCanceled: false,
       providerSucceeded: false,
       hasYielded: false,
+      observedMessages: [...messages],
+      stopHookInvoked: false,
+      stopHookBlocked: false,
     };
     try {
       await this.#runExecution(execution);
@@ -1175,6 +1196,34 @@ export class RunLoop {
           runContext: execution.runContext,
           acceptedAtMonotonicMs: execution.acceptedAtMonotonicMs,
           runKind: execution.kind,
+          ...(this.#onRunBeforeStop
+            ? {
+                onStopHook: async (event, signal) => {
+                  execution.stopHookInvoked = true;
+                  const evaluation = await this.#onRunBeforeStop!(
+                    {
+                      runId: execution.runId,
+                      attempt: event.attempt,
+                      stopHookActive: event.stopHookActive,
+                      inputs: execution.observedMessages,
+                    },
+                    signal,
+                  );
+                  if (evaluation.decision.action === "block") {
+                    execution.stopHookBlocked = true;
+                    this.#logger.log("info", "local_run.stop_hook_blocked", {
+                      runId: execution.runId,
+                      ...(evaluation.blockedBy
+                        ? { feature: evaluation.blockedBy }
+                        : {}),
+                      ...(event.runtime ? { runtime: event.runtime } : {}),
+                      attempt: event.attempt,
+                    });
+                  }
+                  return evaluation.decision;
+                },
+              }
+            : {}),
           ...(execution.hasYielded
             ? {
                 beforeYieldResume: async () => {
@@ -1332,6 +1381,7 @@ export class RunLoop {
         new Set(execution.provenance.sourceInboxIds),
       steerOperations: new Set(),
       replyDelivery,
+      observedMessages: execution.observedMessages,
     };
     this.#activeExecution = active;
     execution.intent.resolveProviderReady(active);
@@ -1372,6 +1422,10 @@ export class RunLoop {
       runId,
       finalResponse,
       replyDelivery,
+      {
+        invoked: execution.stopHookInvoked,
+        blocked: execution.stopHookBlocked,
+      },
     );
     this.#logger.log("info", "local_run.finish_started", {
       runId,
@@ -1740,10 +1794,13 @@ export class RunLoop {
     runId: string,
     finalResponse: string,
     replyDelivery: ReplyDelivery,
+    stopHook: { readonly invoked: boolean; readonly blocked: boolean },
   ): Promise<LocalRunTerminal> {
     const roomRun = this.#executionContextRef?.kind === "meta";
     const suspectedUndelivered = roomRun && replyDelivery.replyUndelivered;
-    const suspectedNotSent = roomRun && replyDelivery.replyNotSent;
+    const suspectedNotSent =
+      roomRun &&
+      (stopHook.blocked || (!stopHook.invoked && replyDelivery.replyNotSent));
     let confirmedReplied = false;
     if (suspectedUndelivered || suspectedNotSent) {
       try {
@@ -1757,6 +1814,9 @@ export class RunLoop {
           error,
         });
       }
+    }
+    if (stopHook.blocked && confirmedReplied) {
+      this.#logger.log("info", "local_run.stop_hook_recovered", { runId });
     }
     const undelivered = suspectedUndelivered && !confirmedReplied;
     if (replyDelivery.hasFailures) {
@@ -1778,6 +1838,7 @@ export class RunLoop {
       this.#logger.log("warn", "local_run.reply_not_sent", {
         runId,
         ...replyDelivery.counts(),
+        stopHookBlocked: stopHook.blocked,
         finalResponseLength: finalResponse.length,
       });
       return {
@@ -1880,6 +1941,7 @@ export class RunLoop {
         target.sourceInboxIds.add(inboxId);
       }
       target.inputs.push(input);
+      target.observedMessages.push(...messages);
       target.replyDelivery.observeInputs(messages);
       this.#reportActiveRunContext({
         runId: target.runId,
