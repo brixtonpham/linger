@@ -2,8 +2,6 @@ package native
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 	"log/slog"
 	"strings"
@@ -64,7 +62,7 @@ func NewBridgeStopHook(bridge *HumanInteractionBridge, runtimeName string, logge
 		if runtime == "" {
 			runtime = runtimeName
 		}
-		requestID := "stop-hook-" + stopHookRandomHex(12)
+		requestID := "stop-hook-" + piRandomHex(12)
 		replyCh := make(chan json.RawMessage, 1)
 		payload := map[string]any{
 			"kind":             "runtime_hook",
@@ -114,10 +112,4 @@ func NewBridgeStopHook(bridge *HumanInteractionBridge, runtimeName string, logge
 			return StopHookDecision{Action: "allow"}
 		}
 	}
-}
-
-func stopHookRandomHex(n int) string {
-	raw := make([]byte, n)
-	_, _ = rand.Read(raw)
-	return hex.EncodeToString(raw)
 }

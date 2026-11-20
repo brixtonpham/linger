@@ -303,4 +303,63 @@ describe("RunLoop + room-reply-guard stop hook", () => {
       failure: { code: "reply_not_sent", runtime_type: "claude" },
     });
   });
+
+  it("falls back to reply_not_sent when the stop-hook TeamHub check fails and no message activity occurred", async () => {
+    const hasRunReplied = vi.fn(async () => {
+      throw new Error("teamhub timeout");
+    });
+    const composed = composeContextFeatures({
+      context: makeMetaContext(),
+      features: [createRoomReplyGuardFeature({ hasRunReplied })],
+    });
+    const state = new TestContextRuntimeState({
+      databasePath: ":memory:",
+      ref: ROOM_REF,
+    });
+    const stateReplySpy = vi
+      .spyOn(state, "hasLocalRunReplied")
+      .mockRejectedValue(new Error("teamhub still unavailable"));
+    const { logger } = createSilentLogger();
+
+    const decisions: Array<{ action: string; reason?: string }> = [];
+    const provider = new StopHookFakeProvider(async (spec) => {
+      decisions.push(
+        await spec.onStopHook!(
+          { runtime: "codex", attempt: 0, stopHookActive: false },
+          new AbortController().signal,
+        ),
+      );
+      return { finalResponse: "internal text" };
+    });
+
+    const loop = new RunLoop({
+      logger,
+      executionContextRef: ROOM_REF,
+      provider,
+      runtimeName: "codex",
+      runtimeSession: { threadId: "thread-1" },
+      state,
+      prepareInput: (m) => m,
+      onRunEvent: () => [],
+      onRunBeforeStop: (input, signal) =>
+        composed.evaluateRunBeforeStop(input, signal),
+    });
+
+    const runId = state.enqueueTrustedTurn([
+      makeRoomMessage("m1", "@Helper hi", true),
+    ]);
+    loop.start();
+    await loop.drain({ cancelActive: false });
+    state.close();
+
+    expect(decisions).toEqual([{ action: "allow" }]);
+    expect(hasRunReplied).toHaveBeenCalledTimes(1);
+    expect(stateReplySpy).toHaveBeenCalledTimes(1);
+    const finished = state.getLocalRun(runId);
+    expect(finished?.status).toBe("failed");
+    expect(finished?.terminal).toMatchObject({
+      type: "failed",
+      failure: { code: "reply_not_sent", runtime_type: "codex" },
+    });
+  });
 });

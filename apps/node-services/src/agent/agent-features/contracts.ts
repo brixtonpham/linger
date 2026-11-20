@@ -205,7 +205,11 @@ export interface RunStopHookInput {
 }
 
 export type RunStopHookDecision =
-  | { readonly action: "allow" }
+  | {
+      readonly action: "allow";
+      /** True when the handler positively confirmed a visible reply landed. */
+      readonly replyConfirmed?: boolean;
+    }
   | { readonly action: "block"; readonly reason: string };
 
 /** One maintenance action the core may run on an idle Context. */

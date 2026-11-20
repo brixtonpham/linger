@@ -286,7 +286,7 @@ interface LocalRunExecution {
   providerSucceeded: boolean;
   hasYielded: boolean;
   readonly observedMessages: Message[];
-  stopHookInvoked: boolean;
+  stopHookReplyConfirmed: boolean;
   stopHookBlocked: boolean;
 }
 
@@ -950,7 +950,7 @@ export class RunLoop {
       providerSucceeded: false,
       hasYielded: false,
       observedMessages: [...messages],
-      stopHookInvoked: false,
+      stopHookReplyConfirmed: false,
       stopHookBlocked: false,
     };
     try {
@@ -1199,7 +1199,6 @@ export class RunLoop {
           ...(this.#onRunBeforeStop
             ? {
                 onStopHook: async (event, signal) => {
-                  execution.stopHookInvoked = true;
                   const evaluation = await this.#onRunBeforeStop!(
                     {
                       runId: execution.runId,
@@ -1209,6 +1208,9 @@ export class RunLoop {
                     },
                     signal,
                   );
+                  if (evaluation.replyConfirmed) {
+                    execution.stopHookReplyConfirmed = true;
+                  }
                   if (evaluation.decision.action === "block") {
                     execution.stopHookBlocked = true;
                     this.#logger.log("info", "local_run.stop_hook_blocked", {
@@ -1423,7 +1425,7 @@ export class RunLoop {
       finalResponse,
       replyDelivery,
       {
-        invoked: execution.stopHookInvoked,
+        replyConfirmed: execution.stopHookReplyConfirmed,
         blocked: execution.stopHookBlocked,
       },
     );
@@ -1794,13 +1796,14 @@ export class RunLoop {
     runId: string,
     finalResponse: string,
     replyDelivery: ReplyDelivery,
-    stopHook: { readonly invoked: boolean; readonly blocked: boolean },
+    stopHook: { readonly replyConfirmed: boolean; readonly blocked: boolean },
   ): Promise<LocalRunTerminal> {
     const roomRun = this.#executionContextRef?.kind === "meta";
     const suspectedUndelivered = roomRun && replyDelivery.replyUndelivered;
     const suspectedNotSent =
       roomRun &&
-      (stopHook.blocked || (!stopHook.invoked && replyDelivery.replyNotSent));
+      (stopHook.blocked ||
+        (!stopHook.replyConfirmed && replyDelivery.replyNotSent));
     let confirmedReplied = false;
     if (suspectedUndelivered || suspectedNotSent) {
       try {

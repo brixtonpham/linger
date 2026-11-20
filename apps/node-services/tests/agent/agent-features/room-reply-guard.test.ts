@@ -143,7 +143,10 @@ describe("room-reply-guard feature", () => {
       new AbortController().signal,
     );
 
-    expect(result).toEqual({ decision: { action: "allow" } });
+    expect(result).toEqual({
+      decision: { action: "allow" },
+      replyConfirmed: true,
+    });
     expect(hasRunReplied).toHaveBeenCalledTimes(1);
     expect(hasRunReplied).toHaveBeenCalledWith(
       '["meta","agent-1","room","room-1"]',

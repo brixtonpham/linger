@@ -75,7 +75,7 @@ export function createRoomReplyGuardFeature(
               return { action: "allow" };
             }
             if (replied) {
-              return { action: "allow" };
+              return { action: "allow", replyConfirmed: true };
             }
             blockedRuns.add(input.runId);
             deps.logger?.log("info", "room_reply_guard.blocked", {

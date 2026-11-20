@@ -154,3 +154,21 @@ with running work stays where it is unless the owner chose to end that work:
 work found before `apply` refuses the switch with `AGENT_HAS_ACTIVE_RUNS`, and
 work that started during it leaves only that Agent behind, answered with the
 same code after the others moved.
+
+## Stop hook flow
+
+A Feature may register a `stop` hook on an Agent Run so the Runtime asks the
+Agent Service before finishing a turn:
+
+1. Agent Service sets `stop_hook: true` on `run.start` or `run.resume` only when
+   the Run's composed Features have a `stop` hook and the Computer is version
+   `0.57.0` or later (`FIRST_STOP_HOOK_COMPUTER_VERSION`). Older Computers
+   decode `run.start` with `DisallowUnknownFields()` and would fail the
+   Operation if `stop_hook` were sent; omitting it fails open while older
+   Computers upgrade.
+2. When the Runtime is about to finish a turn, the Daemon sends
+   `operation.stop.check` and waits for `operation.stop.decision` (`allow` or
+   `block` with a `reason`). On `block`, the Runtime continues the turn with
+   that reason (Claude Code and Codex via their native `Stop` hooks; Pi via
+   RPC `follow_up`). Timeout, disconnect, or an invalid decision fails open to
+   `allow`.

@@ -150,6 +150,11 @@ take precedence.
   BYOK input goes only to Computer 0.56.0 or later
   (`FIRST_BYOK_ENDPOINT_COMPUTER_VERSION`), whose welcome also names the
   `byok_endpoint` service feature.
+- Runtime stop-hook bridging (`stop_hook` on `provider.prepare`,
+  `operation.prepare`, and `operation.start`) goes only to Computer 0.57.0 or
+  later (`FIRST_STOP_HOOK_COMPUTER_VERSION`), because an older Computer rejects
+  unknown envelope fields and closes the connection; Runs on older Computers
+  rely on `RunLoop`'s post-hoc `reply_not_sent` check.
 - Default unit, integration, and fixture smoke tests use deterministic adapters
   and do not call a live model provider. Explicitly named live suites such as
   `smoke:local-runner:live` may use an authenticated provider and must remain

@@ -178,7 +178,7 @@ func TestHooksConfigRunsTheDaemonInHookMode(t *testing.T) {
 		url:     "http://127.0.0.1:1/permission-request/secret",
 		stopURL: "http://127.0.0.1:1/stop/secret",
 	}
-	config := endpoint.HooksConfig("/Applications/Linger Computer/bin/daemon's")
+	config := endpoint.HooksConfigFor("/Applications/Linger Computer/bin/daemon's", true, false)
 	handler := config["PermissionRequest"].([]any)[0].(map[string]any)["hooks"].([]any)[0].(map[string]any)
 	if handler["type"] != "command" || handler["timeout"] != 90 ||
 		handler["command"] != `'/Applications/Linger Computer/bin/daemon'\''s' permission-hook 'http://127.0.0.1:1/permission-request/secret'` ||
@@ -186,7 +186,7 @@ func TestHooksConfigRunsTheDaemonInHookMode(t *testing.T) {
 		t.Fatalf("handler = %#v", handler)
 	}
 	if _, hasStop := config["Stop"]; hasStop {
-		t.Fatalf("HooksConfig unexpectedly included Stop: %#v", config)
+		t.Fatalf("HooksConfigFor(true, false) unexpectedly included Stop: %#v", config)
 	}
 
 	stopOnly := endpoint.HooksConfigFor("/Applications/Linger Computer/bin/daemon's", false, true)

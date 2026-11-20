@@ -389,6 +389,8 @@ export const appendInputContribution: InputContributionMerger = (
 export interface RunStopHookEvaluation {
   readonly decision: RunStopHookDecision;
   readonly blockedBy?: string;
+  /** True when a stop-hook handler positively confirmed a visible reply landed. */
+  readonly replyConfirmed?: boolean;
 }
 
 export interface ComposedContextFeatures {
@@ -618,6 +620,7 @@ export const composeContextFeatures = (input: {
       return updates;
     },
     async evaluateRunBeforeStop(stopInput, signal) {
+      let replyConfirmed = false;
       for (const { feature, handler } of stopHookHandlers) {
         if (signal.aborted || boundContext.signal.aborted) {
           return { decision: { action: "allow" } };
@@ -630,11 +633,16 @@ export const composeContextFeatures = (input: {
               blockedBy: feature.id,
             };
           }
+          if (decision?.action === "allow" && decision.replyConfirmed) {
+            replyConfirmed = true;
+          }
         } catch (error) {
           isolated("feature.run_before_stop_failed")(feature, error);
         }
       }
-      return { decision: { action: "allow" } };
+      return replyConfirmed
+        ? { decision: { action: "allow" }, replyConfirmed: true }
+        : { decision: { action: "allow" } };
     },
     decideMaintenance(trigger) {
       for (const { feature, handler } of orderedHandlers(

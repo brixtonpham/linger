@@ -103,11 +103,6 @@ func newEndpoint() (*CodexEndpoint, error) {
 	return endpoint, nil
 }
 
-// HooksConfig is the Codex `hooks` configuration for PermissionRequest only.
-func (e *CodexEndpoint) HooksConfig(daemonExecutable string) map[string]any {
-	return e.HooksConfigFor(daemonExecutable, true, false)
-}
-
 // HooksConfigFor builds the Codex `hooks` configuration for the requested
 // managed hooks through the Daemon's own executable. Codex runs a Windows hook
 // under `powershell -Command`, where a quoted path needs the call operator to
