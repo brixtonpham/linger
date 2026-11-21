@@ -170,16 +170,40 @@ describe("Direct Agent runtime settings", () => {
       await screen.findByRole("button", { name: "Qwen3 Coder 30B" }),
     ).toBeVisible();
   });
+
+  it("disambiguates duplicate model labels on the composer trigger", async () => {
+    const registration = localAgent();
+    registration.runtime.model = "server/group/wb-gpt-5.5";
+    renderSwitch({
+      models: [
+        { id: "server/group/wb-gpt-5.5", label: "WorkBuddy Site" },
+        { id: "server/group/wb-glm-5.3", label: "WorkBuddy Site" },
+      ],
+      registration,
+    });
+
+    expect(
+      await screen.findByRole("button", {
+        name: "WorkBuddy Site (server/group/wb-gpt-5.5) Medium",
+      }),
+    ).toBeVisible();
+  });
 });
 
 function renderSwitch({
   busy = false,
   currentActorId = "actor-jenny",
+  models = runtimeModels,
   registration = localAgent(),
   updateTenantAgent = vi.fn(),
 }: {
   busy?: boolean;
   currentActorId?: string;
+  models?: Array<{
+    allowed_reasoning_effort?: string[];
+    id: string;
+    label: string;
+  }>;
   registration?: TeamHubTenantAgent;
   updateTenantAgent?: TestRouteHandler;
 }) {
@@ -195,7 +219,7 @@ function renderSwitch({
         computer_id: "computer-1",
         display_name: "Computer",
         status: "online",
-        runtimes: [{ type: "codex", status: "ready", models: runtimeModels }],
+        runtimes: [{ type: "codex", status: "ready", models }],
         workspace_grants: [
           {
             grant_id: "grant-1",
